@@ -1,59 +1,121 @@
-# Welcome to Your New Wails3 Project!
+# Dev Turbo
 
-Congratulations on generating your Wails3 application! This README will guide you through the next steps to get your project up and running.
+一个基于 Wails3 框架开发的桌面应用程序，使用 Go 后端 + Vue3 前端技术栈，提供密钥管理功能。
 
-## Getting Started
+## 技术栈
 
-1. Navigate to your project directory in the terminal.
+- **后端**: Go 1.25 + Wails3 v3.0.0-alpha.72
+- **前端**: Vue 3 + TypeScript + Vite
+- **UI 组件**: Element Plus + UnoCSS
+- **路由**: Vue Router 4
 
-2. To run your application in development mode, use the following command:
+## 功能特性
 
-   ```
-   wails3 dev
-   ```
+- **密钥管理**: 安全地存储和管理各类密钥
+  - 添加、编辑、删除密钥
+  - 支持多种密钥类型
+  - 数据本地加密存储 (AES-GCM)
+- **实时事件**: 后端定时推送时间事件到前端
+- **跨平台**: 支持 Windows、macOS、Linux
 
-   This will start your application and enable hot-reloading for both frontend and backend changes.
+## 项目结构
 
-3. To build your application for production, use:
+```
+.
+├── main.go                 # 应用入口
+├── go.mod                  # Go 模块配置
+├── service/                # 后端服务层
+│   ├── greetservice.go     # 问候服务
+│   └── keyservice.go       # 密钥管理服务
+├── frontend/               # 前端代码
+│   ├── src/
+│   │   ├── components/     # Vue 组件
+│   │   ├── views/          # 页面视图
+│   │   │   ├── home/       # 首页
+│   │   │   ├── key/        # 密钥管理页
+│   │   │   └── system/     # 系统布局
+│   │   ├── router/         # 路由配置
+│   │   ├── App.vue         # 根组件
+│   │   └── main.ts         # 前端入口
+│   ├── package.json        # 前端依赖配置
+│   ├── vite.config.ts      # Vite 配置
+│   └── uno.config.ts       # UnoCSS 配置
+├── build/                  # 构建输出目录
+└── Taskfile.yml            # 任务配置
+```
 
-   ```
-   wails3 build
-   ```
+## 开发环境要求
 
-   This will create a production-ready executable in the `build` directory.
+- Go 1.25 或更高版本
+- Node.js 16 或更高版本
+- Wails3 CLI
 
-## Exploring Wails3 Features
+## 快速开始
 
-Now that you have your project set up, it's time to explore the features that Wails3 offers:
+### 安装依赖
 
-1. **Check out the examples**: The best way to learn is by example. Visit the `examples` directory in the `v3/examples` directory to see various sample applications.
+```bash
+# 安装 Go 依赖
+go mod tidy
 
-2. **Run an example**: To run any of the examples, navigate to the example's directory and use:
+# 安装前端依赖
+cd frontend && npm install
+```
 
-   ```
-   go run .
-   ```
+### 开发模式
 
-   Note: Some examples may be under development during the alpha phase.
+```bash
+# 使用 wails3 启动开发服务器
+wails3 dev
+```
 
-3. **Explore the documentation**: Visit the [Wails3 documentation](https://v3.wails.io/) for in-depth guides and API references.
+这将启动应用并启用前后端热重载。
 
-4. **Join the community**: Have questions or want to share your progress? Join the [Wails Discord](https://discord.gg/JDdSxwjhGf) or visit the [Wails discussions on GitHub](https://github.com/wailsapp/wails/discussions).
+### 构建生产版本
 
-## Project Structure
+```bash
+# 构建生产版本
+wails3 build
+```
 
-Take a moment to familiarize yourself with your project structure:
+构建后的可执行文件将位于 `build/bin` 目录。
 
-- `frontend/`: Contains your frontend code (HTML, CSS, JavaScript/TypeScript)
-- `main.go`: The entry point of your Go backend
-- `app.go`: Define your application structure and methods here
-- `wails.json`: Configuration file for your Wails project
+### 跨平台构建
 
-## Next Steps
+```bash
+# Windows
+wails3 build -platform windows
 
-1. Modify the frontend in the `frontend/` directory to create your desired UI.
-2. Add backend functionality in `main.go`.
-3. Use `wails3 dev` to see your changes in real-time.
-4. When ready, build your application with `wails3 build`.
+# macOS
+wails3 build -platform darwin
 
-Happy coding with Wails3! If you encounter any issues or have questions, don't hesitate to consult the documentation or reach out to the Wails community.
+# Linux
+wails3 build -platform linux
+```
+
+## 核心服务 API
+
+### GreetService
+
+- `Greet(name string) string` - 返回问候语
+
+### KeyService
+
+- `GetAllKeys() ([]KeyItem, error)` - 获取所有密钥
+- `AddKey(item KeyItem) (KeyItem, error)` - 添加密钥
+- `UpdateKey(item KeyItem) (KeyItem, error)` - 更新密钥
+- `DeleteKey(id string) error` - 删除密钥
+
+## 数据存储
+
+密钥数据以加密形式存储在用户主目录下的 `.dev-turbo/keys.dat` 文件中，使用 AES-256-GCM 加密算法保护数据安全。
+
+## 参考文档
+
+- [Wails3 官方文档](https://v3.wails.io/)
+- [Vue3 文档](https://vuejs.org/)
+- [Element Plus 文档](https://element-plus.org/)
+
+## 许可证
+
+MIT
