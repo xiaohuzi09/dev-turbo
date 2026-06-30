@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
-import { Events } from "@wailsio/runtime";
 import * as KeyService from "../../../bindings/github.com/xiaohuzi09/dev-turbo/service/keyservice";
 import { TOOLS } from "@/constants/tools";
 
 const router = useRouter();
 
-const currentTime = ref(new Date().toLocaleString("zh-CN"));
-let offTime: (() => void) | null = null;
+const formatNow = () => new Date().toLocaleString("zh-CN");
+const currentTime = ref(formatNow());
 let clockTimer: ReturnType<typeof setInterval> | null = null;
 
 const keyCount = ref(0);
@@ -31,19 +30,14 @@ const loadKeyCount = async () => {
   }
 };
 
-onMounted(async () => {
-  offTime = await Events.On("time", (evt: any) => {
-    currentTime.value = evt.data as string;
-  });
-  // 后端事件不可用时，使用本地 1s 时钟兜底
+onMounted(() => {
   clockTimer = setInterval(() => {
-    currentTime.value = new Date().toLocaleString("zh-CN");
+    currentTime.value = formatNow();
   }, 1000);
   loadKeyCount();
 });
 
 onUnmounted(() => {
-  if (offTime) offTime();
   if (clockTimer) clearInterval(clockTimer);
 });
 </script>
