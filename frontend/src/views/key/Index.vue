@@ -9,24 +9,16 @@ import {
   CopyDocument,
   Edit,
   Delete,
+  ArrowDown,
 } from "@element-plus/icons-vue";
-import * as KeyService from "../../../bindings/changeme/service/keyservice";
-import type { KeyItem } from "../../../bindings/changeme/service/models";
+import * as KeyService from "../../../bindings/github.com/xiaohuzi09/dev-turbo/service/keyservice";
+import type { KeyItem } from "../../../bindings/github.com/xiaohuzi09/dev-turbo/service/models";
+import { useClipboard } from "../../composables/useClipboard";
+import { getErrorMessage, formatDateTime } from "../../utils";
+import { DatabaseValue, SecretValue, KEY_TYPES } from "../../types/key";
 import KeyDialog from "./KeyDialog.vue";
 
-// 数据库类型数据结构
-interface DatabaseValue {
-  accountType: string;
-  username: string;
-  database: string;
-  password: string;
-}
-
-// 密钥类型数据结构
-interface SecretValue {
-  privateKey: string;
-  publicKey: string;
-}
+const { copy } = useClipboard();
 
 // 密钥列表
 const keyList = ref<KeyItem[]>([]);
@@ -36,46 +28,48 @@ const loading = ref(false);
 const showDialog = ref(false);
 const editingKey = ref<KeyItem | null>(null);
 
-// 搜索关键词
+// 搜索 / 筛选
 const searchQuery = ref("");
-
-// 类型筛选
 const filterType = ref("");
 
-// 显示/隐藏密钥
+// 展开 / 显示控制
+const expandedId = ref<string | null>(null); // 当前展开的密钥（同时只展开一个）
 const showValues = ref<Record<string, boolean>>({});
+const hideTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
+// 安全解析 value JSON（避免模板里反复 JSON.parse 抛错）
+const parsedCache = computed(() => {
+  const map: Record<string, any> = {};
+  for (const k of keyList.value) {
+    try {
+      map[k.id] = JSON.parse(k.value || "{}");
+    } catch {
+      map[k.id] = null;
+    }
+  }
+  return map;
+});
 
 // 过滤后的密钥列表
 const filteredKeys = computed(() => {
   let result = keyList.value;
-
-  // 类型筛选
   if (filterType.value) {
-    result = result.filter((key) => key.type === filterType.value);
+    result = result.filter((item) => item.type === filterType.value);
   }
-
-  // 关键词搜索
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
     result = result.filter(
-      (key) =>
-        key.name.toLowerCase().includes(query) ||
-        key.description.toLowerCase().includes(query) ||
-        key.type.toLowerCase().includes(query)
+      (item) =>
+        item.name.toLowerCase().includes(query) ||
+        item.description.toLowerCase().includes(query) ||
+        item.type.toLowerCase().includes(query)
     );
   }
-
   return result;
 });
 
-// 密钥类型选项
-const keyTypes = [
-  { value: "api-key", label: "API Key", type: "primary" },
-  { value: "secret", label: "密钥", type: "success" },
-  { value: "database", label: "数据库", type: "warning" },
-  { value: "token", label: "Token", type: "info" },
-  { value: "other", label: "其他", type: "" },
-];
+// 列表态：每条密钥的一行摘要预览（固定长度掩码，绝不暴露原文长度）
+const previewText = (_item: KeyItem): string => "••••••••••";
 
 // 从 Go 后端加载数据
 const loadKeys = async () => {
@@ -85,167 +79,123 @@ const loadKeys = async () => {
     keyList.value = keys;
   } catch (e) {
     console.error("加载密钥失败:", e);
-    ElMessage.error("加载密钥失败");
+    ElMessage.error("加载密钥失败: " + getErrorMessage(e));
   } finally {
     loading.value = false;
   }
 };
 
-// 打开新增对话框
 const openAddDialog = () => {
   editingKey.value = null;
   showDialog.value = true;
 };
 
-// 打开编辑对话框
-const openEditDialog = (key: KeyItem) => {
-  editingKey.value = key;
+const openEditDialog = (item: KeyItem) => {
+  editingKey.value = item;
   showDialog.value = true;
 };
 
-// 保存密钥
 const handleSave = async (data: {
   isEdit: boolean;
   keyData: Partial<KeyItem>;
 }) => {
   try {
     if (data.isEdit && data.keyData.id) {
-      // 编辑模式
       const updated = await KeyService.UpdateKey(data.keyData as KeyItem);
       const index = keyList.value.findIndex((k) => k.id === updated.id);
-      if (index !== -1) {
-        keyList.value[index] = updated;
-      }
+      if (index !== -1) keyList.value[index] = updated;
       ElMessage.success("更新成功");
     } else {
-      // 新增模式
       const newKey = await KeyService.AddKey(data.keyData as KeyItem);
       keyList.value.unshift(newKey);
       ElMessage.success("添加成功");
     }
-  } catch (e: any) {
-    ElMessage.error("保存失败: " + (e.message || e));
+    showDialog.value = false;
+  } catch (e) {
+    ElMessage.error("保存失败: " + getErrorMessage(e));
   }
 };
 
-// 删除密钥
-const deleteKey = async (key: KeyItem) => {
+const deleteKey = async (item: KeyItem) => {
   try {
-    await ElMessageBox.confirm(`确定要删除 "${key.name}" 吗？`, "提示", {
+    await ElMessageBox.confirm(`确定要删除 "${item.name}" 吗？`, "提示", {
       confirmButtonText: "确定",
       cancelButtonText: "取消",
       type: "warning",
     });
-
-    await KeyService.DeleteKey(key.id);
-    keyList.value = keyList.value.filter((k) => k.id !== key.id);
+    await KeyService.DeleteKey(item.id);
+    keyList.value = keyList.value.filter((k) => k.id !== item.id);
+    if (expandedId.value === item.id) expandedId.value = null;
     ElMessage.success("删除成功");
-  } catch (e: any) {
-    if (e !== "cancel") {
-      ElMessage.error("删除失败: " + (e.message || e));
-    }
-  }
-};
-
-// 切换密钥显示/隐藏
-const toggleShowValue = (id: string) => {
-  showValues.value[id] = !showValues.value[id];
-};
-
-// 解析密钥值用于显示
-const parseKeyValue = (key: KeyItem): string => {
-  if (key.type === "database") {
-    try {
-      const parsed: DatabaseValue = JSON.parse(key.value);
-      return `账号类型: ${parsed.accountType}\n账号: ${parsed.username}\n数据库: ${parsed.database}\n密码: ${parsed.password}`;
-    } catch {
-      return key.value;
-    }
-  } else if (key.type === "secret") {
-    try {
-      const parsed: SecretValue = JSON.parse(key.value);
-      const publicKeyDisplay = parsed.publicKey
-        ? parsed.publicKey.length > 30
-          ? parsed.publicKey.substring(0, 30) + "..."
-          : parsed.publicKey
-        : "未设置";
-      return `私钥: ${parsed.privateKey.substring(
-        0,
-        30
-      )}...\n公钥: ${publicKeyDisplay}`;
-    } catch {
-      return key.value;
-    }
-  }
-  return key.value;
-};
-
-// 复制到剪贴板
-const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text);
-    ElMessage.success("已复制到剪贴板");
   } catch (e) {
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    document.body.removeChild(textarea);
-    ElMessage.success("已复制到剪贴板");
+    if (e !== "cancel") ElMessage.error("删除失败: " + getErrorMessage(e));
   }
 };
 
-// 复制数据库密码
-const copyDatabasePassword = async (key: KeyItem) => {
-  try {
-    const parsed: DatabaseValue = JSON.parse(key.value);
-    await copyToClipboard(parsed.password);
-  } catch {
-    await copyToClipboard(key.value);
+const clearHideTimers = () => {
+  for (const id of Object.keys(hideTimers)) {
+    clearTimeout(hideTimers[id]);
+    delete hideTimers[id];
   }
 };
 
-// 复制私钥
-const copyPrivateKey = async (key: KeyItem) => {
-  try {
-    const parsed: SecretValue = JSON.parse(key.value);
-    await copyToClipboard(parsed.privateKey);
-  } catch {
-    await copyToClipboard(key.value);
+// 切换展开（同时只展开一个，并重置所有显示状态）
+const toggleExpand = (id: string) => {
+  expandedId.value = expandedId.value === id ? null : id;
+  showValues.value = {};
+  clearHideTimers();
+};
+
+const toggleShowValue = (id: string) => {
+  const willShow = !showValues.value[id];
+  showValues.value[id] = willShow;
+  if (hideTimers[id]) {
+    clearTimeout(hideTimers[id]);
+    delete hideTimers[id];
+  }
+  if (willShow) {
+    hideTimers[id] = setTimeout(() => {
+      showValues.value[id] = false;
+      delete hideTimers[id];
+    }, 30000);
   }
 };
 
-// 复制公钥
-const copyPublicKey = async (key: KeyItem) => {
-  try {
-    const parsed: SecretValue = JSON.parse(key.value);
-    if (parsed.publicKey) {
-      await copyToClipboard(parsed.publicKey);
-    } else {
-      ElMessage.warning("公钥未设置");
-    }
-  } catch {
-    ElMessage.warning("公钥未设置");
+// 复制单字段
+const copyField = (text: string) => {
+  if (text) copy(text);
+};
+
+// 复制数据库密码 / 私钥 / 公钥（解析失败不落回 key.value）
+const copyDbPassword = (item: KeyItem) => {
+  const parsed = parsedCache.value[item.id] as DatabaseValue | null;
+  const pwd = parsed?.password || "";
+  if (!pwd) {
+    ElMessage.warning("密码为空");
+    return;
   }
+  copy(pwd);
+};
+const copyPrivateKey = (item: KeyItem) => {
+  const parsed = parsedCache.value[item.id] as SecretValue | null;
+  const pk = parsed?.privateKey || "";
+  if (!pk) {
+    ElMessage.warning("私钥为空");
+    return;
+  }
+  copy(pk);
+};
+const copyPublicKey = (item: KeyItem) => {
+  const parsed = parsedCache.value[item.id] as SecretValue | null;
+  if (parsed?.publicKey) copy(parsed.publicKey);
+  else ElMessage.warning("公钥未设置");
 };
 
-// 格式化日期
-const formatDate = (timestamp: number) => {
-  return new Date(timestamp).toLocaleString("zh-CN");
-};
+const getKeyTypeLabel = (type: string) =>
+  KEY_TYPES.find((t) => t.value === type)?.label || type;
 
-// 获取密钥类型标签
-const getKeyTypeLabel = (type: string) => {
-  return keyTypes.find((t) => t.value === type)?.label || type;
-};
-
-// 获取密钥类型标签样式
-const getKeyTypeTagType = (type: string): any => {
-  return keyTypes.find((t) => t.value === type)?.type || "";
-};
+const getKeyTypeTagType = (type: string): any =>
+  KEY_TYPES.find((t) => t.value === type)?.tagType || "";
 
 onMounted(() => {
   loadKeys();
@@ -254,8 +204,17 @@ onMounted(() => {
 
 <template>
   <div class="key-manager">
+    <!-- 页面标题 -->
+    <header class="page-header">
+      <div class="page-title-row">
+        <span class="i-mdi-key-chain page-icon"></span>
+        <h2 class="page-title">密钥管理</h2>
+      </div>
+      <p class="page-desc">安全存储和管理 API Key、数据库凭证与密钥对</p>
+    </header>
+
     <!-- 头部工具栏 -->
-    <div class="toolbar">
+    <div class="toolbar-card">
       <div class="toolbar-left">
         <el-input
           v-model="searchQuery"
@@ -274,7 +233,7 @@ onMounted(() => {
           class="filter-select"
         >
           <el-option
-            v-for="t in keyTypes"
+            v-for="t in KEY_TYPES"
             :key="t.value"
             :label="t.label"
             :value="t.value"
@@ -282,214 +241,153 @@ onMounted(() => {
         </el-select>
       </div>
       <el-button type="primary" @click="openAddDialog" :icon="Plus"
-        >新增key</el-button
+        >新增密钥</el-button
       >
     </div>
 
     <!-- 密钥列表 -->
     <el-scrollbar class="key-list">
-      <el-empty v-if="filteredKeys.length === 0" description="暂无密钥">
+      <el-empty
+        v-if="filteredKeys.length === 0"
+        description="暂无密钥"
+      >
         <el-button type="primary" @click="openAddDialog"
           >添加第一个密钥</el-button
         >
       </el-empty>
 
-      <el-card
-        v-for="key in filteredKeys"
-        :key="key.id"
-        class="key-card"
-        shadow="hover"
-      >
-        <div class="key-header">
-          <div class="key-info">
-            <el-tag :type="getKeyTypeTagType(key.type)" size="small">
-              {{ getKeyTypeLabel(key.type) }}
-            </el-tag>
-            <span class="key-name">{{ key.name }}</span>
-          </div>
-          <div class="key-actions">
-            <el-icon
-              @click="openEditDialog(key)"
-              class="text-gray-500 cursor-pointer"
-            >
-              <Edit />
-            </el-icon>
-            <el-icon @click="deleteKey(key)" class="text-red cursor-pointer">
-              <Delete />
-            </el-icon>
-          </div>
-        </div>
-
-        <!-- 数据库类型显示 -->
-        <div v-if="key.type === 'database'" class="key-value-section">
-          <div class="database-fields">
-            <div class="field-row">
-              <span class="field-label">账号类型:</span>
-              <el-input
-                :model-value="JSON.parse(key.value || '{}').accountType || ''"
-                readonly
-                class="field-input"
-              />
-              <el-icon
-                class="cursor-pointer action-icon"
-                @click="
-                  copyToClipboard(
-                    JSON.parse(key.value || '{}').accountType || ''
-                  )
-                "
-              >
-                <CopyDocument />
-              </el-icon>
-            </div>
-            <div class="field-row">
-              <span class="field-label">账号:</span>
-              <el-input
-                :model-value="JSON.parse(key.value || '{}').username || ''"
-                readonly
-                class="field-input"
-              />
-              <el-icon
-                class="cursor-pointer action-icon"
-                @click="
-                  copyToClipboard(JSON.parse(key.value || '{}').username || '')
-                "
-              >
-                <CopyDocument />
-              </el-icon>
-            </div>
-            <div class="field-row">
-              <span class="field-label">数据库:</span>
-              <el-input
-                :model-value="JSON.parse(key.value || '{}').database || ''"
-                readonly
-                class="field-input"
-              />
-              <el-icon
-                class="cursor-pointer action-icon"
-                @click="
-                  copyToClipboard(JSON.parse(key.value || '{}').database || '')
-                "
-              >
-                <CopyDocument />
-              </el-icon>
-            </div>
-            <div class="field-row">
-              <span class="field-label">密码:</span>
-              <el-input
-                :type="showValues[key.id] ? 'text' : 'password'"
-                :model-value="JSON.parse(key.value || '{}').password || ''"
-                readonly
-                class="field-input"
-              />
-              <el-icon
-                class="cursor-pointer action-icon"
-                @click="toggleShowValue(key.id)"
-              >
-                <View v-if="showValues[key.id]" />
-                <Hide v-else />
-              </el-icon>
-              <el-icon
-                class="cursor-pointer action-icon"
-                @click="copyDatabasePassword(key)"
-              >
-                <CopyDocument />
-              </el-icon>
-            </div>
-          </div>
-        </div>
-
-        <!-- 密钥类型显示 -->
-        <div v-else-if="key.type === 'secret'" class="key-value-section">
-          <div class="secret-fields">
-            <div class="field-row">
-              <span class="field-label">私钥:</span>
-              <el-input
-                :type="showValues[key.id] ? 'text' : 'password'"
-                :model-value="JSON.parse(key.value || '{}').privateKey || ''"
-                readonly
-                class="field-input"
-              />
-              <el-icon
-                class="cursor-pointer action-icon"
-                @click="toggleShowValue(key.id)"
-              >
-                <View v-if="showValues[key.id]" />
-                <Hide v-else />
-              </el-icon>
-              <el-icon
-                class="cursor-pointer action-icon"
-                @click="copyPrivateKey(key)"
-              >
-                <CopyDocument />
-              </el-icon>
-            </div>
-            <div class="field-row">
-              <span class="field-label">公钥:</span>
-              <el-input
-                :type="showValues[key.id] ? 'text' : 'password'"
-                :model-value="JSON.parse(key.value || '{}').publicKey || ''"
-                readonly
-                class="field-input"
-                placeholder="可选"
-              />
-              <el-icon
-                class="cursor-pointer action-icon"
-                @click="copyPublicKey(key)"
-              >
-                <CopyDocument />
-              </el-icon>
-            </div>
-          </div>
-        </div>
-
-        <!-- 其他类型显示 -->
-        <div v-else class="key-value-section">
-          <div class="field-row">
-            <span class="field-label">密钥值:</span>
-            <el-input
-              :type="showValues[key.id] ? 'text' : 'password'"
-              :model-value="key.value"
-              readonly
-              class="field-input"
-            />
-            <el-icon
-              class="cursor-pointer action-icon"
-              @click="toggleShowValue(key.id)"
-            >
-              <View v-if="showValues[key.id]" />
-              <Hide v-else />
-            </el-icon>
-            <el-icon
-              class="cursor-pointer action-icon"
-              @click="copyToClipboard(key.value)"
-            >
-              <CopyDocument />
-            </el-icon>
-          </div>
-        </div>
-
-        <el-text
-          v-if="key.description"
-          type="info"
-          size="small"
-          class="key-description"
+      <div class="key-rows">
+        <div
+          v-for="item in filteredKeys"
+          :key="item.id"
+          class="key-row"
+          :class="{ expanded: expandedId === item.id }"
         >
-          {{ key.description }}
-        </el-text>
+          <!-- 列表态：单行摘要 -->
+          <div class="row-summary" @click="toggleExpand(item.id)">
+            <el-tag
+              :type="getKeyTypeTagType(item.type)"
+              size="small"
+              effect="light"
+              class="row-tag"
+            >
+              {{ getKeyTypeLabel(item.type) }}
+            </el-tag>
+            <span class="row-name">{{ item.name }}</span>
+            <span class="row-preview mono min-w-0">{{ previewText(item) }}</span>
+            <div class="row-actions" @click.stop>
+              <el-icon
+                class="action-icon"
+                @click="openEditDialog(item)"
+                title="编辑"
+              >
+                <Edit />
+              </el-icon>
+              <el-icon
+                class="action-icon danger"
+                @click="deleteKey(item)"
+                title="删除"
+              >
+                <Delete />
+              </el-icon>
+              <el-icon
+                class="action-icon expand-icon"
+                :class="{ rotated: expandedId === item.id }"
+              >
+                <ArrowDown />
+              </el-icon>
+            </div>
+          </div>
 
-        <div class="key-footer">
-          <el-text type="info" size="small">
-            创建于 {{ formatDate(key.createdAt) }}
-          </el-text>
-          <el-text
-            v-if="key.updatedAt !== key.createdAt"
-            type="info"
-            size="small"
-          >
-            更新于 {{ formatDate(key.updatedAt) }}
-          </el-text>
+          <!-- 展开详情 -->
+          <transition name="expand">
+            <div v-if="expandedId === item.id" class="row-detail">
+              <!-- 数据库类型 -->
+              <template v-if="item.type === 'database'">
+                <div class="detail-grid responsive">
+                  <div class="detail-field">
+                    <span class="detail-label">账号类型</span>
+                    <div class="detail-value-row">
+                      <span class="detail-value mono">{{ parsedCache[item.id]?.accountType || '—' }}</span>
+                      <el-icon class="action-icon" @click="copyField(parsedCache[item.id]?.accountType)"><CopyDocument /></el-icon>
+                    </div>
+                  </div>
+                  <div class="detail-field">
+                    <span class="detail-label">账号</span>
+                    <div class="detail-value-row">
+                      <span class="detail-value mono">{{ parsedCache[item.id]?.username || '—' }}</span>
+                      <el-icon class="action-icon" @click="copyField(parsedCache[item.id]?.username)"><CopyDocument /></el-icon>
+                    </div>
+                  </div>
+                  <div class="detail-field">
+                    <span class="detail-label">数据库</span>
+                    <div class="detail-value-row">
+                      <span class="detail-value mono">{{ parsedCache[item.id]?.database || '—' }}</span>
+                      <el-icon class="action-icon" @click="copyField(parsedCache[item.id]?.database)"><CopyDocument /></el-icon>
+                    </div>
+                  </div>
+                  <div class="detail-field">
+                    <span class="detail-label">密码</span>
+                    <div class="detail-value-row">
+                      <span class="detail-value mono">{{ showValues[item.id] ? (parsedCache[item.id]?.password || '') : '••••••••••' }}</span>
+                      <el-icon class="action-icon" @click="toggleShowValue(item.id)">
+                        <View v-if="!showValues[item.id]" /><Hide v-else />
+                      </el-icon>
+                      <el-icon class="action-icon" @click="copyDbPassword(item)"><CopyDocument /></el-icon>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- 密钥对类型 -->
+              <template v-else-if="item.type === 'secret'">
+                <div class="detail-field full">
+                  <span class="detail-label">私钥</span>
+                  <div class="detail-value-row">
+                    <span class="detail-value mono break">
+                      {{ showValues[item.id] ? (parsedCache[item.id]?.privateKey || '—') : '••••••••••••••••••••••••••••••••' }}
+                    </span>
+                    <el-icon class="action-icon" @click="toggleShowValue(item.id)">
+                      <View v-if="!showValues[item.id]" /><Hide v-else />
+                    </el-icon>
+                    <el-icon class="action-icon" @click="copyPrivateKey(item)"><CopyDocument /></el-icon>
+                  </div>
+                </div>
+                <div class="detail-field full">
+                  <span class="detail-label">公钥</span>
+                  <div class="detail-value-row">
+                    <span class="detail-value mono break">{{ parsedCache[item.id]?.publicKey || '未设置' }}</span>
+                    <el-icon v-if="parsedCache[item.id]?.publicKey" class="action-icon" @click="copyPublicKey(item)"><CopyDocument /></el-icon>
+                  </div>
+                </div>
+              </template>
+
+              <!-- 其他类型 -->
+              <template v-else>
+                <div class="detail-field full">
+                  <span class="detail-label">密钥值</span>
+                  <div class="detail-value-row">
+                    <span class="detail-value mono break">
+                      {{ showValues[item.id] ? item.value : '••••••••••••••••••••••••••••••••' }}
+                    </span>
+                    <el-icon class="action-icon" @click="toggleShowValue(item.id)">
+                      <View v-if="!showValues[item.id]" /><Hide v-else />
+                    </el-icon>
+                    <el-icon class="action-icon" @click="copy(item.value)"><CopyDocument /></el-icon>
+                  </div>
+                </div>
+              </template>
+
+              <!-- 描述 + 时间 -->
+              <div v-if="item.description" class="detail-desc">{{ item.description }}</div>
+              <div class="detail-meta">
+                <span>创建于 {{ formatDateTime(item.createdAt) }}</span>
+                <span v-if="item.updatedAt !== item.createdAt">· 更新于 {{ formatDateTime(item.updatedAt) }}</span>
+              </div>
+            </div>
+          </transition>
         </div>
-      </el-card>
+      </div>
     </el-scrollbar>
 
     <!-- 新增/编辑对话框 -->
@@ -499,118 +397,175 @@ onMounted(() => {
 
 <style scoped>
 .key-manager {
-  @apply w-full h-full flex flex-col p-4 box-border;
+  @apply w-full h-full flex flex-col p-6 box-border;
+}
+
+/* 页面标题 */
+.page-header {
+  @apply mb-4 flex-shrink-0;
+}
+.page-title-row {
+  @apply flex items-center gap-2;
+}
+.page-icon {
+  font-size: 22px;
+  color: var(--el-color-primary);
+}
+.page-title {
+  @apply text-xl font-semibold m-0;
+  color: var(--app-text-primary);
+  letter-spacing: -0.01em;
+}
+.page-desc {
+  @apply text-sm mt-1 mb-0;
+  color: var(--app-text-secondary);
 }
 
 /* 工具栏 */
-.toolbar {
-  @apply flex items-center justify-between mb-4 gap-4;
+.toolbar-card {
+  @apply flex flex-wrap items-center justify-between gap-4 mb-4 p-4 rounded-2xl flex-shrink-0;
+  background-color: var(--app-surface);
+  border: 1px solid var(--app-border);
 }
-
 .toolbar-left {
-  @apply flex items-center gap-3;
+  @apply flex items-center gap-3 flex-1;
 }
-
 .search-input {
-  width: 300px;
+  @apply w-full max-w-xs;
 }
-
 .filter-select {
-  width: 150px;
+  @apply w-full max-w-40;
 }
 
 /* 密钥列表 */
 .key-list {
   flex: 1;
+  min-height: 0;
+}
+.key-rows {
+  @apply flex flex-col gap-2 pb-2;
 }
 
-/* 密钥卡片 */
-.key-card {
-  margin-bottom: 16px;
+/* 单行密钥项 */
+.key-row {
+  @apply rounded-2xl overflow-hidden;
+  background-color: var(--app-surface);
+  border: 1px solid var(--app-border);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.key-row:hover {
+  border-color: var(--el-color-primary-light-7);
+}
+.key-row.expanded {
+  border-color: var(--el-color-primary-light-5);
+  box-shadow: var(--app-shadow-sm);
 }
 
-.key-card :deep(.el-card__body) {
-  padding: 16px;
+.row-summary {
+  @apply flex items-center gap-3 px-4 cursor-pointer select-none;
+  height: 56px;
+}
+.row-tag {
+  flex-shrink: 0;
+}
+.row-name {
+  @apply text-sm font-semibold flex-shrink-0 max-w-56 truncate;
+  color: var(--app-text-primary);
+}
+.row-preview {
+  @apply flex-1 text-xs truncate;
+  color: var(--app-text-secondary);
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.key-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
+/* 操作区 */
+.row-actions {
+  @apply flex items-center gap-1 flex-shrink-0;
 }
-
-.key-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.key-name {
-  font-size: 16px;
-  font-weight: 500;
-}
-
-.key-actions {
-  display: flex;
-  @apply gap-4;
-}
-
-/* 密钥值区域 */
-.key-value-section {
-  margin-bottom: 12px;
-}
-
-/* 数据库/密钥字段布局 */
-.database-fields,
-.secret-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.field-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.field-label {
-  min-width: 60px;
-  font-size: 13px;
-  color: #606266;
-}
-
-.field-input {
-  flex: 1;
-}
-
-.field-input :deep(.el-input__inner) {
-  font-family: monospace;
-}
-
 .action-icon {
-  font-size: 16px;
-  color: #909399;
-}
-
-.action-icon:hover {
-  color: #409eff;
-}
-
-.cursor-pointer {
+  @apply w-8 h-8 rounded-lg flex items-center justify-center;
+  font-size: 15px;
+  color: var(--app-text-secondary);
   cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.action-icon:hover {
+  background-color: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  transform: scale(1.05);
+}
+.action-icon.danger:hover {
+  background-color: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
+.expand-icon {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s;
+}
+.expand-icon.rotated {
+  transform: rotate(180deg);
+  color: var(--el-color-primary);
 }
 
-/* 描述 */
-.key-description {
-  display: block;
-  margin-bottom: 12px;
+/* 展开详情 */
+.row-detail {
+  @apply px-4 pb-4 pt-3;
+  border-top: 1px solid var(--app-border);
+}
+.detail-grid {
+  @apply grid grid-cols-1 gap-x-6 gap-y-3;
+}
+.detail-grid.responsive {
+  @apply md:grid-cols-2;
+}
+.detail-field {
+  @apply flex flex-col gap-1 min-w-0;
+}
+.detail-field.full {
+  @apply md:col-span-2;
+}
+.detail-label {
+  @apply text-xs font-medium;
+  color: var(--app-text-secondary);
+}
+.detail-value-row {
+  @apply flex items-center gap-2 min-w-0;
+}
+.detail-value {
+  @apply text-sm flex-1 min-w-0;
+  color: var(--app-text-primary);
+}
+.detail-value.break {
+  @apply break-all;
+}
+.detail-desc {
+  @apply text-xs mt-3 px-3 py-2 rounded-lg break-words;
+  background-color: var(--app-surface-secondary);
+  color: var(--app-text-secondary);
+}
+.detail-meta {
+  @apply text-xs mt-2 flex flex-wrap gap-2;
+  color: var(--app-text-secondary);
+  opacity: 0.8;
 }
 
-/* 底部信息 */
-.key-footer {
-  display: flex;
-  gap: 16px;
+/* 展开动画 */
+.expand-enter-active,
+.expand-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+.expand-enter-from,
+.expand-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.expand-enter-to,
+.expand-leave-from {
+  opacity: 1;
+  max-height: 500px;
 }
 </style>

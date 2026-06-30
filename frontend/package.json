@@ -11,8 +11,9 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
-    "@wailsio/runtime": "latest",
+    "@wailsio/runtime": "3.0.0-alpha.79",
     "element-plus": "^2.13.4",
+    "js-md5": "^0.8.3",
     "vue": "^3.2.45",
     "vue-router": "^4.6.4"
   },
