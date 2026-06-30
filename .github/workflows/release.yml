@@ -13,8 +13,7 @@ permissions:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────
-  # 复用：构建步骤。每个平台 job 都调用它。
-  # 输入: wails3 task 命令 + 产物路径 + 平台/架构标识。
+  # 构建步骤。每个平台一个 job。
   # ─────────────────────────────────────────────────────────────────
 
   build-macos-arm64:
@@ -44,35 +43,6 @@ jobs:
         with:
           name: macos-arm64
           path: dev-turbo-macos-arm64.tar.gz
-          if-no-files-found: error
-
-  build-macos-amd64:
-    runs-on: macos-13            # Intel (amd64)
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install tooling (wails3 + task)
-        run: |
-          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-          go install github.com/go-task/task/v3/cmd/task@latest
-      - name: Build & package (.app)
-        run: wails3 task darwin:package ARCH=amd64
-      - name: Compress .app
-        run: |
-          cd bin
-          tar -czf ../dev-turbo-macos-amd64.tar.gz "dev-turbo.app"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-amd64
-          path: dev-turbo-macos-amd64.tar.gz
           if-no-files-found: error
 
   build-windows:
@@ -105,11 +75,11 @@ jobs:
           if-no-files-found: error
 
   # ─────────────────────────────────────────────────────────────────
-  # 发布：等 3 个构建全部成功，汇总产物创建 Release。
+  # 发布：等 2 个构建全部成功，汇总产物创建 Release。
   # ─────────────────────────────────────────────────────────────────
 
   release:
-    needs: [build-macos-arm64, build-macos-amd64, build-windows]
+    needs: [build-macos-arm64, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -126,7 +96,6 @@ jobs:
           generate_release_notes: true
           files: |
             assets/dev-turbo-macos-arm64.tar.gz
-            assets/dev-turbo-macos-amd64.tar.gz
             assets/dev-turbo-windows-amd64.zip
           body: |
             ## Dev Turbo ${{ github.ref_name }}
@@ -135,7 +104,6 @@ jobs:
 
             ### 下载说明
             - **macOS Apple Silicon (M1/M2/M3/M4)**：下载 `dev-turbo-macos-arm64.tar.gz`
-            - **macOS Intel**：下载 `dev-turbo-macos-amd64.tar.gz`
             - **Windows**：下载 `dev-turbo-windows-amd64.zip`
 
             ### 安装与首次运行
