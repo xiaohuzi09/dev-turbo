@@ -3,7 +3,6 @@ package main
 import (
 	"embed"
 	"log"
-	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -18,16 +17,8 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-func init() {
-	// Register a custom event whose associated data type is string.
-	// This is not required, but the binding generator will pick up registered events
-	// and provide a strongly typed JS/TS API for them.
-	application.RegisterEvent[string]("time")
-}
-
 // main function serves as the application's entry point. It initializes the application, creates a window,
-// and starts a goroutine that emits a time-based event every second. It subsequently runs the application and
-// logs any error that might occur.
+// and runs the application, logging any error that might occur while running the application.
 func main() {
 
 	// Create a new Wails application by providing the necessary options.
@@ -74,17 +65,6 @@ func main() {
 		BackgroundColour: application.NewRGB(245, 245, 245),
 		URL:              "/",
 	})
-
-	// Create a goroutine that emits an event containing the current time every second.
-	// The frontend can listen to this event and update the UI accordingly.
-	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			now := time.Now().Format(time.RFC1123)
-			app.Event.Emit("time", now)
-		}
-	}()
 
 	// Run the application. This blocks until the application has been exited.
 	err = app.Run()
