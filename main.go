@@ -2,13 +2,12 @@ package main
 
 import (
 	"embed"
-	_ "embed"
 	"log"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"changeme/service"
+	"github.com/xiaohuzi09/dev-turbo/service"
 )
 
 // Wails uses Go's `embed` package to embed the frontend files into the binary.
@@ -36,12 +35,17 @@ func main() {
 	// 'Assets' configures the asset server with the 'FS' variable pointing to the frontend files.
 	// 'Bind' is a list of Go struct instances. The frontend has access to the methods of these instances.
 	// 'Mac' options tailor the application when running an macOS.
+	keyService, err := service.NewKeyService()
+	if err != nil {
+		log.Fatalf("failed to create key service: %v", err)
+	}
+
 	app := application.New(application.Options{
 		Name:        "dev-turbo",
-		Description: "A demo of using raw HTML & CSS",
+		Description: "Dev Turbo - a developer tools desktop application",
 		Services: []application.Service{
 			application.NewService(&service.GreetService{}),
-			application.NewService(service.NewKeyService()),
+			application.NewService(keyService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -57,28 +61,33 @@ func main() {
 	// 'BackgroundColour' is the background colour of the window.
 	// 'URL' is the URL that will be loaded into the webview.
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "Window 1",
+		Title:       "Dev Turbo",
+		Width:       1280,
+		Height:      820,
+		MinWidth:    960,
+		MinHeight:   600,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
-		BackgroundColour: application.NewRGB(27, 38, 54),
+		BackgroundColour: application.NewRGB(245, 245, 245),
 		URL:              "/",
 	})
 
 	// Create a goroutine that emits an event containing the current time every second.
 	// The frontend can listen to this event and update the UI accordingly.
 	go func() {
-		for {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
 			now := time.Now().Format(time.RFC1123)
 			app.Event.Emit("time", now)
-			time.Sleep(time.Second)
 		}
 	}()
 
 	// Run the application. This blocks until the application has been exited.
-	err := app.Run()
+	err = app.Run()
 
 	// If an error occurred while running the application, log it and exit.
 	if err != nil {

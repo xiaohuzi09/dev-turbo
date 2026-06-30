@@ -14,5 +14,5 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
  * Greet 返回问候语
  */
 export function Greet(name: string): $CancellablePromise<string> {
-    return $Call.ByID(4140836512, name);
+    return $Call.ByID(2771532474, name);
 }

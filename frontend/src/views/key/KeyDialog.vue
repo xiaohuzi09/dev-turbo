@@ -1,24 +1,9 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import type { KeyItem } from "../../../bindings/changeme/service/models";
-
-// 前端使用的密钥类型
-type KeyType = "api-key" | "secret" | "database" | "token" | "other";
-
-// 数据库类型数据结构
-interface DatabaseValue {
-  accountType: string;
-  username: string;
-  database: string;
-  password: string;
-}
-
-// 密钥类型数据结构
-interface SecretValue {
-  privateKey: string;
-  publicKey: string;
-}
+import type { FormInstance, FormRules } from "element-plus";
+import type { KeyItem } from "../../../bindings/github.com/xiaohuzi09/dev-turbo/service/models";
+import { DatabaseValue, SecretValue, KeyType, KEY_TYPES } from "../../types/key";
 
 // Props
 const props = defineProps<{
@@ -39,7 +24,7 @@ const visible = ref(false);
 const isEdit = ref(false);
 
 // 表单引用
-const formRef = ref();
+const formRef = ref<FormInstance>();
 
 // 表单数据
 const formData = ref({
@@ -56,13 +41,88 @@ const formData = ref({
 });
 
 // 密钥类型选项
-const keyTypes = [
-  { value: "api-key", label: "API Key" },
-  { value: "secret", label: "密钥" },
-  { value: "database", label: "数据库" },
-  { value: "token", label: "Token" },
-  { value: "other", label: "其他" },
-];
+const keyTypes = KEY_TYPES;
+
+// 表单校验规则
+const rules: FormRules = {
+  name: [{ required: true, message: "请输入密钥名称", trigger: "blur" }],
+  accountType: [
+    {
+      validator: (_rule, value, callback) => {
+        if (formData.value.type === "database" && !value?.trim()) {
+          callback(new Error("请输入账号类型"));
+        } else {
+          callback();
+        }
+      },
+      trigger: "blur",
+    },
+  ],
+  username: [
+    {
+      validator: (_rule, value, callback) => {
+        if (formData.value.type === "database" && !value?.trim()) {
+          callback(new Error("请输入账号"));
+        } else {
+          callback();
+        }
+      },
+      trigger: "blur",
+    },
+  ],
+  database: [
+    {
+      validator: (_rule, value, callback) => {
+        if (formData.value.type === "database" && !value?.trim()) {
+          callback(new Error("请输入数据库"));
+        } else {
+          callback();
+        }
+      },
+      trigger: "blur",
+    },
+  ],
+  password: [
+    {
+      validator: (_rule, value, callback) => {
+        if (formData.value.type === "database" && !value) {
+          callback(new Error("请输入密码"));
+        } else {
+          callback();
+        }
+      },
+      trigger: "blur",
+    },
+  ],
+  privateKey: [
+    {
+      validator: (_rule, value, callback) => {
+        if (formData.value.type === "secret" && !value?.trim()) {
+          callback(new Error("请输入私钥"));
+        } else {
+          callback();
+        }
+      },
+      trigger: "blur",
+    },
+  ],
+  value: [
+    {
+      validator: (_rule, value, callback) => {
+        if (
+          formData.value.type !== "database" &&
+          formData.value.type !== "secret" &&
+          !value
+        ) {
+          callback(new Error("请输入密钥值"));
+        } else {
+          callback();
+        }
+      },
+      trigger: "blur",
+    },
+  ],
+};
 
 // 监听外部 v-model
 watch(
@@ -87,19 +147,22 @@ watch(visible, (val) => {
   emit("update:modelValue", val);
 });
 
-// 监听类型变化，清空不需要的字段
-watch(
-  () => formData.value.type,
-  () => {
-    formData.value.value = "";
-    formData.value.accountType = "";
-    formData.value.username = "";
-    formData.value.database = "";
-    formData.value.password = "";
-    formData.value.privateKey = "";
-    formData.value.publicKey = "";
-  }
-);
+// 切换类型时保留公共字段（名称、描述），清空类型专属字段
+const onTypeChange = (type: KeyType) => {
+  const { name, description } = formData.value;
+  formData.value = {
+    name,
+    type,
+    description,
+    value: "",
+    accountType: "",
+    username: "",
+    database: "",
+    password: "",
+    privateKey: "",
+    publicKey: "",
+  };
+};
 
 // 重置表单数据
 const resetFormData = () => {
@@ -141,7 +204,7 @@ const initFormData = (key: KeyItem) => {
       baseData.database = parsed.database || "";
       baseData.password = parsed.password || "";
     } catch {
-      baseData.password = key.value;
+      baseData.password = "";
     }
   } else if (key.type === "secret") {
     try {
@@ -149,7 +212,7 @@ const initFormData = (key: KeyItem) => {
       baseData.privateKey = parsed.privateKey || "";
       baseData.publicKey = parsed.publicKey || "";
     } catch {
-      baseData.privateKey = key.value;
+      baseData.privateKey = "";
     }
   } else {
     baseData.value = key.value;
@@ -181,48 +244,16 @@ const buildValue = (): string => {
   }
 };
 
-// 验证表单
-const validateForm = (): boolean => {
-  if (!formData.value.name.trim()) {
-    ElMessage.error("请输入密钥名称");
-    return false;
+// 保存：先校验，通过后交给父组件保存，父组件在保存成功后再关闭对话框
+const handleSave = async () => {
+  if (!formRef.value) return;
+
+  try {
+    await formRef.value.validate();
+  } catch {
+    ElMessage.error("请检查表单填写是否完整");
+    return;
   }
-
-  if (formData.value.type === "database") {
-    if (!formData.value.accountType.trim()) {
-      ElMessage.error("请输入账号类型");
-      return false;
-    }
-    if (!formData.value.username.trim()) {
-      ElMessage.error("请输入账号");
-      return false;
-    }
-    if (!formData.value.database.trim()) {
-      ElMessage.error("请输入数据库");
-      return false;
-    }
-    if (!formData.value.password) {
-      ElMessage.error("请输入密码");
-      return false;
-    }
-  } else if (formData.value.type === "secret") {
-    if (!formData.value.privateKey.trim()) {
-      ElMessage.error("请输入私钥");
-      return false;
-    }
-  } else {
-    if (!formData.value.value) {
-      ElMessage.error("请输入密钥值");
-      return false;
-    }
-  }
-
-  return true;
-};
-
-// 保存
-const handleSave = () => {
-  if (!validateForm()) return;
 
   const valueToSave = buildValue();
   const keyData: Partial<KeyItem> = {
@@ -240,7 +271,6 @@ const handleSave = () => {
   }
 
   emit("save", { isEdit: isEdit.value, keyData });
-  visible.value = false;
 };
 
 // 取消
@@ -253,16 +283,17 @@ const handleCancel = () => {
   <el-dialog
     v-model="visible"
     :title="isEdit ? '编辑密钥' : '新增密钥'"
-    width="80%"
+    width="90%"
+    class="key-dialog"
     destroy-on-close
   >
-    <el-form ref="formRef" :model="formData" label-position="top">
+    <el-form ref="formRef" :model="formData" :rules="rules" label-position="top">
       <el-form-item label="名称" prop="name">
         <el-input v-model="formData.name" placeholder="例如：OpenAI API Key" />
       </el-form-item>
 
       <el-form-item label="类型">
-        <el-radio-group v-model="formData.type">
+        <el-radio-group v-model="formData.type" @change="onTypeChange">
           <el-radio-button
             v-for="t in keyTypes"
             :key="t.value"
@@ -305,8 +336,8 @@ const handleCancel = () => {
         <el-form-item label="私钥" prop="privateKey">
           <el-input
             v-model="formData.privateKey"
-            type="textarea"
-            :rows="4"
+            type="password"
+            show-password
             placeholder="输入私钥..."
           />
         </el-form-item>
@@ -348,3 +379,151 @@ const handleCancel = () => {
     </template>
   </el-dialog>
 </template>
+
+
+<style scoped>
+/* 对话框容器 */
+.key-dialog :deep(.el-dialog) {
+  max-width: 560px;
+  border-radius: 16px;
+  overflow: hidden;
+  background-color: var(--app-surface);
+  box-shadow: var(--app-shadow-lg);
+}
+
+/* 对话框头部 */
+.key-dialog :deep(.el-dialog__header) {
+  padding: 20px 24px;
+  margin-right: 0;
+  border-bottom: 1px solid var(--app-border);
+}
+.key-dialog :deep(.el-dialog__title) {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+  letter-spacing: -0.01em;
+}
+.key-dialog :deep(.el-dialog__headerbtn) {
+  width: 32px;
+  height: 32px;
+  top: 16px;
+  right: 16px;
+  border-radius: 8px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.key-dialog :deep(.el-dialog__headerbtn:hover) {
+  background-color: var(--app-surface-secondary);
+  color: var(--el-color-primary);
+}
+
+/* 对话框主体 */
+.key-dialog :deep(.el-dialog__body) {
+  padding: 20px 24px;
+}
+
+/* 表单 */
+.key-dialog :deep(.el-form-item__label) {
+  color: var(--app-text-secondary);
+  font-weight: 500;
+  padding-bottom: 6px;
+  line-height: 1.4;
+}
+
+/* 输入框 */
+.key-dialog :deep(.el-input__wrapper) {
+  background-color: var(--app-surface-secondary);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px transparent inset;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.key-dialog :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px var(--app-border) inset;
+}
+.key-dialog :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
+  background-color: var(--app-surface);
+}
+.key-dialog :deep(.el-input__inner) {
+  color: var(--app-text-primary);
+}
+.key-dialog :deep(.el-input__inner::placeholder) {
+  color: var(--app-text-secondary);
+  opacity: 0.7;
+}
+
+/* 文本域 */
+.key-dialog :deep(.el-textarea__inner) {
+  background-color: var(--app-surface-secondary);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-text-primary);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.key-dialog :deep(.el-textarea__inner::placeholder) {
+  color: var(--app-text-secondary);
+  opacity: 0.7;
+}
+.key-dialog :deep(.el-textarea__inner:hover) {
+  border-color: var(--app-border);
+}
+.key-dialog :deep(.el-textarea__inner:focus) {
+  border-color: var(--el-color-primary);
+  background-color: var(--app-surface);
+}
+
+/* 密码框眼睛图标 */
+.key-dialog :deep(.el-input__password) {
+  color: var(--app-text-secondary);
+}
+.key-dialog :deep(.el-input__password:hover) {
+  color: var(--el-color-primary);
+}
+
+/* 单选按钮组 - 分段控制器风格 */
+.key-dialog :deep(.el-radio-group) {
+  @apply p-1 rounded-xl flex flex-wrap gap-1;
+  background-color: var(--app-surface-secondary);
+  border: 1px solid var(--app-border);
+}
+.key-dialog :deep(.el-radio-button__inner) {
+  border: none;
+  border-left: none;
+  background-color: transparent;
+  color: var(--app-text-secondary);
+  border-radius: 10px;
+  box-shadow: none;
+  padding: 8px 16px;
+  font-weight: 500;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.key-dialog :deep(.el-radio-button:first-child .el-radio-button__inner),
+.key-dialog :deep(.el-radio-button:last-child .el-radio-button__inner) {
+  border-radius: 10px;
+}
+.key-dialog :deep(.el-radio-button__inner:hover) {
+  color: var(--app-text-primary);
+}
+.key-dialog :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background-color: var(--app-surface);
+  color: var(--el-color-primary);
+  box-shadow: var(--app-shadow-sm);
+}
+
+/* 底部 */
+.key-dialog :deep(.el-dialog__footer) {
+  padding: 16px 24px;
+  border-top: 1px solid var(--app-border);
+}
+.key-dialog :deep(.el-dialog__footer .el-button) {
+  border-radius: 12px;
+  padding: 10px 20px;
+  font-weight: 500;
+}
+.key-dialog :deep(.el-dialog__footer .el-button--primary) {
+  border: none;
+}
+</style>

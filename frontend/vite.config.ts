@@ -12,4 +12,17 @@ export default defineConfig({
       "@": resolve(__dirname, "src"),
     },
   },
+  build: {
+    target: "es2020",
+    sourcemap: false,
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vue: ["vue", "vue-router"],
+          element: ["element-plus", "@element-plus/icons-vue"],
+        },
+      },
+    },
+  },
 });

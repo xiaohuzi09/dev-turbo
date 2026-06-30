@@ -18,7 +18,7 @@ import * as $models from "./models.js";
  * AddKey 添加新密钥
  */
 export function AddKey(item: $models.KeyItem): $CancellablePromise<$models.KeyItem> {
-    return $Call.ByID(2900473383, item).then(($result: any) => {
+    return $Call.ByID(3798967429, item).then(($result: any) => {
         return $$createType0($result);
     });
 }
@@ -27,14 +27,14 @@ export function AddKey(item: $models.KeyItem): $CancellablePromise<$models.KeyIt
  * DeleteKey 删除密钥
  */
 export function DeleteKey(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2793011373, id);
+    return $Call.ByID(2562357799, id);
 }
 
 /**
  * GetAllKeys 获取所有密钥
  */
 export function GetAllKeys(): $CancellablePromise<$models.KeyItem[]> {
-    return $Call.ByID(2705514250).then(($result: any) => {
+    return $Call.ByID(3877406480).then(($result: any) => {
         return $$createType1($result);
     });
 }
@@ -43,14 +43,14 @@ export function GetAllKeys(): $CancellablePromise<$models.KeyItem[]> {
  * SaveKeys 保存所有密钥
  */
 export function SaveKeys(keys: $models.KeyItem[]): $CancellablePromise<void> {
-    return $Call.ByID(1803700672, keys);
+    return $Call.ByID(351901578, keys);
 }
 
 /**
  * UpdateKey 更新密钥
  */
 export function UpdateKey(item: $models.KeyItem): $CancellablePromise<$models.KeyItem> {
-    return $Call.ByID(1821894111, item).then(($result: any) => {
+    return $Call.ByID(127622785, item).then(($result: any) => {
         return $$createType0($result);
     });
 }

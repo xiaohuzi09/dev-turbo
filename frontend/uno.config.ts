@@ -22,4 +22,26 @@ export default defineConfig({
   transformers: [
     transformerDirectives(),
   ],
+  // 这些图标通过变量/对象动态绑定（如 :class="item.icon"），
+  // 无法被 UnoCSS 静态扫描，必须显式 safelist
+  safelist: [
+    'i-mdi-rocket-launch',
+    'i-mdi-home-assistant',
+    'i-mdi-key-chain',
+    'i-mdi-tools',
+    'i-mdi-wrench',
+    'i-mdi-code-json',
+    'i-mdi-fingerprint',
+    'i-mdi-swap-horizontal',
+    'i-mdi-clock-outline',
+    'i-mdi-clock-alert-outline',
+    'i-mdi-shield-key-outline',
+    'i-mdi-identifier',
+    'i-mdi-link-variant',
+    'i-mdi-regex',
+    'i-mdi-chevron-right',
+    'i-mdi-hand-wave',
+    'i-mdi-flash',
+    'i-mdi-api',
+  ],
 })
