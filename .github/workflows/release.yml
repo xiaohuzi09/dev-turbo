@@ -1,0 +1,143 @@
+name: Release
+
+# 推送 v* 形式的 tag 时构建 macOS + Windows 安装包并发布到 GitHub Release。
+# ad-hoc 签名，不公证。Windows 出裸 .exe（无 NSIS 安装包）。
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # 创建 Release 必需
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # 复用：构建步骤。每个平台 job 都调用它。
+  # 输入: wails3 task 命令 + 产物路径 + 平台/架构标识。
+  # ─────────────────────────────────────────────────────────────────
+
+  build-macos-arm64:
+    runs-on: macos-latest        # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install tooling (wails3 + task)
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Build & package (.app)
+        run: wails3 task darwin:package ARCH=arm64
+      - name: Compress .app
+        run: |
+          cd bin
+          tar -czf ../dev-turbo-macos-arm64.tar.gz "dev-turbo.app"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: dev-turbo-macos-arm64.tar.gz
+          if-no-files-found: error
+
+  build-macos-amd64:
+    runs-on: macos-13            # Intel (amd64)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install tooling (wails3 + task)
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Build & package (.app)
+        run: wails3 task darwin:package ARCH=amd64
+      - name: Compress .app
+        run: |
+          cd bin
+          tar -czf ../dev-turbo-macos-amd64.tar.gz "dev-turbo.app"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-amd64
+          path: dev-turbo-macos-amd64.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install tooling (wails3 + task)
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Build (.exe, CGO disabled)
+        run: wails3 task windows:build
+      - name: Compress .exe
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "bin\dev-turbo.exe" -DestinationPath "dev-turbo-windows-amd64.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64
+          path: dev-turbo-windows-amd64.zip
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────────
+  # 发布：等 3 个构建全部成功，汇总产物创建 Release。
+  # ─────────────────────────────────────────────────────────────────
+
+  release:
+    needs: [build-macos-arm64, build-macos-amd64, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: List downloaded assets
+        run: ls -la assets
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            assets/dev-turbo-macos-arm64.tar.gz
+            assets/dev-turbo-macos-amd64.tar.gz
+            assets/dev-turbo-windows-amd64.zip
+          body: |
+            ## Dev Turbo ${{ github.ref_name }}
+
+            开发者工具箱桌面应用（Wails v3）。
+
+            ### 下载说明
+            - **macOS Apple Silicon (M1/M2/M3/M4)**：下载 `dev-turbo-macos-arm64.tar.gz`
+            - **macOS Intel**：下载 `dev-turbo-macos-amd64.tar.gz`
+            - **Windows**：下载 `dev-turbo-windows-amd64.zip`
+
+            ### 安装与首次运行
+            - **macOS**：解压后把 `dev-turbo.app` 拖到「应用程序」。首次打开若提示无法验证开发者，请**右键 → 打开**绕过 Gatekeeper（未做 Apple 公证，仅 ad-hoc 签名）。
+            - **Windows**：解压后双击 `dev-turbo.exe` 运行。首次运行若弹出 SmartScreen 警告，点「更多信息 → 仍要运行」。需系统已安装 WebView2 运行时（Win10/Win11 通常自带）。
